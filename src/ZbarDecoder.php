@@ -7,6 +7,7 @@ use RobbieP\ZbarQrdecoder\Result\ErrorResult;
 use RobbieP\ZbarQrdecoder\Result\Parser\ParserXML;
 use RobbieP\ZbarQrdecoder\Result\ResultCollection;
 use Symfony\Component\Process\Exception\ProcessFailedException;
+use Symfony\Component\Process\Process;
 use Symfony\Component\Process\ProcessBuilder;
 
 class ZbarDecoder
@@ -21,20 +22,21 @@ class ZbarDecoder
      */
     private $result;
     /**
-     * @var ProcessBuilder
+     * @var Process
      */
-    private $processBuilder;
+    private $process;
 
     /**
-     * @param array          $config
-     * @param ProcessBuilder $processBuilder
+     * @param array $config
+     * @param Process $process
+     * @throws \Exception
      */
-    public function __construct(array $config = [], $processBuilder = null)
+    public function __construct(array $config = [], Process $process = null)
     {
         if (isset($config['path'])) {
             $this->setPath($config['path']);
         }
-        $this->processBuilder = null === $processBuilder ? new ProcessBuilder() : $processBuilder;
+        $this->process = null === $process ? new Process($this->getPath()) : $process;
     }
 
     /**
@@ -108,8 +110,14 @@ class ZbarDecoder
     private function buildProcess()
     {
         $path = $this->getPath();
-        $this->processBuilder->setPrefix($path . DIRECTORY_SEPARATOR . static::EXECUTABLE);
-        $this->processBuilder->setArguments(['-D', '--xml', '-q', $this->getFilePath()])->enableOutput();
+        $this->process->setCommandLine([
+            $path . DIRECTORY_SEPARATOR . static::EXECUTABLE,
+            '-D',
+            '--xml',
+            '-q',
+            $this->getFilePath()
+        ])->enableOutput();
+
     }
 
     /**
@@ -119,17 +127,11 @@ class ZbarDecoder
      */
     private function runProcess()
     {
-        $process = $this->processBuilder->getProcess();
+        $process = $this->process;
         try {
             $process->mustRun();
             $parser = new ParserXML();
-            $result = $parser->parse(preg_replace_callback(
-                '/<data><\!\[CDATA\[(.*?)\]\]><\/data>/s',
-                function ($matches) {
-                    return '<data><![CDATA[' . base64_encode($matches[1]) . ']]></data>';
-                },
-                $process->getOutput()
-            ));
+            $result = $parser->parse($process->getOutput());
             if (count($result) === 1) {
                 $result = $result->getResults()[0];
             }
